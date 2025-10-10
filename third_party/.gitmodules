@@ -1,0 +1,6 @@
+[submodule "hnswlib"]
+	path = hnswlib
+	url = https://github.com/nmslib/hnswlib.git
+[submodule "Catch2"]
+	path = Catch2
+	url = https://github.com/catchorg/Catch2.git

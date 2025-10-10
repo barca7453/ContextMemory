@@ -1,0 +1,15 @@
+{
+  "dimension": 128,
+  "vectors": [
+    {
+      "id": "vec_001",
+      "data": [0.1, 0.2, 0.3, ...],
+      "label": "test vector 1"
+    },
+    {
+      "id": "vec_002", 
+      "data": [0.4, 0.5, 0.6, ...],
+      "label": "test vector 2"
+    }
+  ]
+}
