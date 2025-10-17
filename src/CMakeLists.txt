@@ -11,5 +11,5 @@ target_include_directories(memory_engine
 )
 
 target_link_libraries(memory_engine
-    PRIVATE hnswlib::hnswlib
+    PUBLIC hnswlib::hnswlib
 )

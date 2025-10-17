@@ -1,8 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
-// Your includes will go here
+#include "ContextMemory/vector_store.h"
 
 TEST_CASE("VectorStore can be created", "[vector_store]") {
-    // This will fail initially - that's TDD!
+    // Test that we can instantiate a VectorStore
+    VectorStore store("test_index", 128);
+    
     REQUIRE(true);
 }
 
