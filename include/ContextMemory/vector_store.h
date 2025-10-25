@@ -9,12 +9,14 @@
 #include <thread>
 #include <stdexcept>
 
-struct CosineSim {
-
+struct L2Sim {
+    using SpaceType = hnswlib::L2Space;
+    using IndexType = hnswlib::HierarchicalNSW<float>;
 };
 
-struct L2Sim {
-
+struct CosineSim {
+    using SpaceType = hnswlib::InnerProductSpace;  // cosine similarity
+    using IndexType = hnswlib::HierarchicalNSW<float>;
 };
 
 template <typename SIM_POLICY>
@@ -23,9 +25,8 @@ private:
     static constexpr int LABEL_RESERVE_INCREMENT_SIZE = 1000;
 
     // hnswlib handles vector storage (binary, efficient)
-    //std::unique_ptr<hnswlib::L2Space> space_;
-    std::unique_ptr<SIM_POLICY> space_;
-    std::unique_ptr<hnswlib::HierarchicalNSW<float>> index_;
+    std::unique_ptr<typename SIM_POLICY::SpaceType> space_;
+    std::unique_ptr<typename SIM_POLICY::IndexType> index_;
 
     int dim_;
     int max_elements_;
@@ -55,12 +56,12 @@ public:
           allow_replace_deleted_(true), 
           current_resized_label_vec_size_(LABEL_RESERVE_INCREMENT_SIZE) {
         // Step 1: Create distance metric
-        space_ = std::make_unique<hnswlib::L2Space>(dim_);
+        space_ = std::make_unique<typename SIM_POLICY::SpaceType>(dim_);
             
         // Step 2: Create index using that metric
-        index_ = std::make_unique<hnswlib::HierarchicalNSW<float>>(
+        index_ = std::make_unique<typename SIM_POLICY::IndexType>(
             space_.get(),    // Pass pointer to space
-            max_elements_,     // Max capacity,
+            max_elements_,   // Max capacity,
             M_,
             ef_construction_,
             allow_replace_deleted_
@@ -103,6 +104,43 @@ public:
     
     void load_mappings(const std::string& index_path) {
         // TODO: Implement
+    }
+
+
+    // getters
+    std::unordered_map<uint64_t, hnswlib::labeltype> get_id_to_label() const {
+        return id_to_label_;
+    }
+    std::vector<uint64_t> get_label_to_id() const {
+        return label_to_id_;
+    }
+    int get_dim() const {
+        return dim_;
+    }
+    int get_max_elements() const {
+        return max_elements_;
+    }
+    int get_M() const {
+        return M_;
+    }
+    int get_ef_construction() const {
+        return ef_construction_;
+    }
+    int get_ef() const {
+        return ef_;
+    }
+    bool get_allow_replace_deleted() const {
+        return allow_replace_deleted_;
+    }
+    size_t get_current_resized_label_vec_size() const {
+        return current_resized_label_vec_size_;
+    }
+    size_t get_index_current_count() const {
+        //return index_->getCurrentCount();
+        return index_->getCurrentElementCount();
+    }
+    size_t get_next_label() const {
+        return next_label_;
     }
 };
 
