@@ -3,7 +3,7 @@
 
 TEST_CASE("VectorStore can be created", "[vector_store]") {
     // Test that we can instantiate a VectorStore
-    VectorStore store("test_index", 128);
+    VectorStore<hnswlib::L2Space> store("test_index", 128);
     
     REQUIRE(true);
 }

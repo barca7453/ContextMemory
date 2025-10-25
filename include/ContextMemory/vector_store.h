@@ -55,12 +55,15 @@ public:
           allow_replace_deleted_(true), 
           current_resized_label_vec_size_(LABEL_RESERVE_INCREMENT_SIZE) {
         // Step 1: Create distance metric
-        space_ = std::make_unique<SIM_POLICY>(dim_);
+        space_ = std::make_unique<hnswlib::L2Space>(dim_);
             
         // Step 2: Create index using that metric
         index_ = std::make_unique<hnswlib::HierarchicalNSW<float>>(
             space_.get(),    // Pass pointer to space
-            max_elements_     // Max capacity
+            max_elements_,     // Max capacity,
+            M_,
+            ef_construction_,
+            allow_replace_deleted_
         );
     }
     
