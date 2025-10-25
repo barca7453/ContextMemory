@@ -1,8 +1,8 @@
 # Build your library
 add_library(memory_engine
-    core/vector_store.cpp
     core/index_manager.cpp
     # ... more files
+    # Note: vector_store.cpp is not compiled as VectorStore is now a header-only template class
 )
 
 target_include_directories(memory_engine
