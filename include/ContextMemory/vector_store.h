@@ -97,11 +97,36 @@ public:
         // TODO: Implement search
         return {};
     }
-    
-    void save_mappings(const std::string& index_path) {
-        // TODO: Implement
+
+    void save_index(const std::string& index_path) {
+        index_->saveIndex(index_path);
+        save_mappings(index_path);
+        save_index_metadata(index_path);
     }
     
+    void save_mappings(const std::string& index_path) {
+        std::ofstream map_file(index_path + ".map", std::ios::binary);
+        if (!map_file.is_open()) {
+            throw std::runtime_error("Failed to open map file for writing");
+        }
+
+        const auto vec_size = label_to_id_.size();
+        map_file.write (reinterpret_cast<const char*>(&vec_size), sizeof (vec_size));
+        // write the vector itself
+        map_file.write (reinterpret_cast<const char*>(label_to_id_.data()), vec_size*sizeof(uint64_t));
+
+        // Save the map by entry
+        for (const auto &[user_id, label] : id_to_label_) {
+            map_file.write(reinterpret_cast<const char*>(&user_id), sizeof(user_id));
+            map_file.write(reinterpret_cast<const char*>(&label), sizeof(label));
+        }
+        map_file.close();
+    }
+
+    void save_index_metadata(const std::string& index_path) {
+        // TODO: Implement
+    }
+
     void load_mappings(const std::string& index_path) {
         // TODO: Implement
     }
