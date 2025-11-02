@@ -17,7 +17,7 @@ TEST_CASE("VectorStore can be created", "[vector_store]") {
 
 TEST_CASE("VectorStore can add hardcoded vectors", "[vector_store]") {
     // TODO: Write test first, then implement
-    VectorStore<L2Sim> store("test_index", 128);
+    VectorStore<L2Sim> store("test_index", 10);
     std::vector<float> vec = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0};
     store.add_vector(1, vec);
     REQUIRE(store.get_index_current_count() == 1);
@@ -29,7 +29,7 @@ TEST_CASE("VectorStore can add hardcoded vectors", "[vector_store]") {
 }
 
 TEST_CASE("VectorStore can save the mappings", "[vector_store]") {
-    VectorStore<L2Sim> store("test_index", 128);
+    VectorStore<L2Sim> store("test_index", 10);
     std::vector<std::vector<float>> vec = {{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0},
         {1.1, 2.1, 3.1, 4.1, 5.1, 6.1, 7.1, 8.1, 9.1, 10.1},
         {1.2, 2.2, 3.2, 4.2, 5.2, 6.2, 7.2, 8.2, 9.2, 10.2},
@@ -45,8 +45,18 @@ TEST_CASE("VectorStore can save the mappings", "[vector_store]") {
         store.add_vector(user_id++,v);
     }
 
+    auto nextLabel = store.get_next_label();
+    std::cout << "Next Label is " << nextLabel << std::endl;
     store.save_mappings("index_test");
-    //store.add_vector(1, vec);
+    // clear the mappings in the store
+    store.cleanMappings();
+    std::cout << "Next Label after clearing is " << store.get_next_label() << std::endl;
+    store.load_mappings("index_test");
+    std::cout << "Next Label after reloading is " << store.get_next_label() << std::endl;
+
+    // next label after loading should be the same as when the
+    // store was saved
+    REQUIRE (store.get_next_label() == nextLabel);
 
 }
  

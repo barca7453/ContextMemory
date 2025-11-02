@@ -1,13 +1,17 @@
 #pragma once
 
+#include <fstream>
+#include <functional>
+#include <tuple>
 #include <hnswlib/hnswlib.h>
 #include <unordered_map>
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
-#include <thread>
+//#include <thread>
 #include <stdexcept>
+
 
 struct L2Sim {
     using SpaceType = hnswlib::L2Space;
@@ -45,6 +49,7 @@ private:
     // the next label
     hnswlib::labeltype next_label_ = 0;
     size_t current_resized_label_vec_size_;
+    std::filesystem::path mapFilePath_;
 
 public:
     VectorStore(const std::string& index_path, const int dim)
@@ -67,10 +72,17 @@ public:
             allow_replace_deleted_
         );
     }
+
+    VectorStore (const std::string& path) : max_elements_(10000), M_(16), ef_construction_(200), ef_(10), allow_replace_deleted_(true), mapFilePath_(path) {
+        load_mappings(path);
+    }
     
     ~VectorStore() = default;
     
     void add_vector(uint64_t user_id, const std::vector<float>& vec) {
+        if (vec.size() != dim_) {
+            throw std::runtime_error("The dimension and vector sizes do not match.");
+        }
         if (id_to_label_.find(user_id) != id_to_label_.end()) {
             throw std::runtime_error("User ID already exists");
         }
@@ -98,13 +110,19 @@ public:
         return {};
     }
 
-    void save_index(const std::string& index_path) {
+    void save_index(const std::string& index_path) const {
         index_->saveIndex(index_path);
         save_mappings(index_path);
         save_index_metadata(index_path);
     }
+
+    void cleanMappings() {
+        label_to_id_.clear();
+        id_to_label_.clear();
+        next_label_ = 0;
+    }
     
-    void save_mappings(const std::string& index_path) {
+    void save_mappings(const std::string& index_path)  const{
         std::ofstream map_file(index_path + ".map", std::ios::binary);
         if (!map_file.is_open()) {
             throw std::runtime_error("Failed to open map file for writing");
@@ -128,7 +146,31 @@ public:
     }
 
     void load_mappings(const std::string& index_path) {
-        // TODO: Implement
+        std::ifstream map_file (index_path + ".map", std::ios::in);
+        if (!map_file.is_open()) {
+            throw std::runtime_error("Failed to open mapping file for reading.");
+        }
+        // Read the size
+        // This is the NUMBER OF ENTRIES in the mapping.
+        uint64_t vec_size = 0;
+        map_file.read(reinterpret_cast<char*>(&vec_size), sizeof(size_t)); 
+        if (vec_size == 0) {
+            throw std::runtime_error("Label to id vector seems to be empty.");
+        }
+        // Read the vector. Guard against a 0 size vector
+        std::unique_ptr<char[]> vec_buffer = std::make_unique<char[]>(vec_size);
+        map_file.read(reinterpret_cast<char*>(label_to_id_.data()), vec_size * sizeof(uint64_t));
+        // Read the map
+        id_to_label_.clear();
+        for (int i = 0;i < vec_size; ++i){
+            hnswlib::labeltype label;
+            uint64_t user_id;
+
+            map_file.read(reinterpret_cast<char*>(&user_id), sizeof(uint64_t));
+            map_file.read(reinterpret_cast<char*>(&label), sizeof(uint64_t));
+            id_to_label_[user_id] = label;
+        }
+        next_label_ = vec_size;
     }
 
 
