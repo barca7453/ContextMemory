@@ -1,5 +1,6 @@
 #pragma once
 
+#include <climits>
 #include <fstream>
 #include <functional>
 #include <tuple>
@@ -78,8 +79,8 @@ public:
     }
     
     ~VectorStore() = default;
-    
-    void add_vector(uint64_t user_id, const std::vector<float>& vec) {
+
+        void add_vector(uint64_t user_id, const std::vector<float>& vec) {
         if (vec.size() != dim_) {
             throw std::runtime_error("The dimension and vector sizes do not match.");
         }
@@ -104,10 +105,31 @@ public:
         label_to_id_.emplace_back(user_id);
         next_label_++;
     }
-    
-    std::vector<uint64_t> search_vectors(const std::vector<float>& vector, const size_t k) {
-        // TODO: Implement search
-        return {};
+
+    struct SearchResult {
+      uint64_t user_id;
+      uint64_t distance;
+    };
+
+    std::vector<SearchResult> search_vectors(const std::vector<float>& vector, const size_t k) {
+        // Mismatched dimension
+        if (vector.size() != dim_) {
+            throw std::runtime_error("Query vector dimension mismatch");
+        }
+
+        // search in the index
+        auto queryResult = index_->searchKnnCloserFirst(vector.data(), k); // TODO there is a filter that could be used, and I am not using it.
+        // form the result vector
+        std::vector<SearchResult> resultVec;
+        resultVec.reserve(k);
+        for (auto &queryResult: queryResult) {
+            SearchResult res;
+            res.user_id = queryResult.second;
+            res.distance = label_to_id_[queryResult.first];
+            resultVec.push_back(res);
+        }
+        // From the result (priority Q, I should first flip it)
+        return resultVec;
     }
 
     void save_index(const std::string& index_path) const {
