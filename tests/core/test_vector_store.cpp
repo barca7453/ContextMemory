@@ -46,13 +46,10 @@ TEST_CASE("VectorStore can save the mappings", "[vector_store]") {
     }
 
     auto nextLabel = store.get_next_label();
-    std::cout << "Next Label is " << nextLabel << std::endl;
     store.save_mappings("index_test");
     // clear the mappings in the store
     store.cleanMappings();
-    std::cout << "Next Label after clearing is " << store.get_next_label() << std::endl;
     store.load_mappings("index_test");
-    std::cout << "Next Label after reloading is " << store.get_next_label() << std::endl;
 
     // next label after loading should be the same as when the
     // store was saved
@@ -128,4 +125,166 @@ TEST_CASE("VectorStore can search vectors", "[vector_store]") {
     
     // Should return all 10 vectors even though we asked for 20
     REQUIRE(results4.size() == 10);
+}
+
+
+TEST_CASE("VectorStore can save and load index from file", "[vector_store][load]") {
+    const std::string index_path = "test_save_load_index";
+    const int dimension = 10;
+    const size_t num_vectors = 10;
+    
+    // Step 1: Create a new index, add vectors, and save it
+    {
+        VectorStore<L2Sim> store(index_path, dimension);
+        
+        // Add test vectors
+        std::vector<std::vector<float>> vectors = {
+            {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0},
+            {1.1, 2.1, 3.1, 4.1, 5.1, 6.1, 7.1, 8.1, 9.1, 10.1},
+            {1.2, 2.2, 3.2, 4.2, 5.2, 6.2, 7.2, 8.2, 9.2, 10.2},
+            {1.3, 2.3, 3.3, 4.3, 5.3, 6.3, 7.3, 8.3, 9.3, 10.3},
+            {1.4, 2.4, 3.4, 4.4, 5.4, 6.4, 7.4, 8.4, 9.4, 10.4},
+            {1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5},
+            {1.6, 2.6, 3.6, 4.6, 5.6, 6.6, 7.6, 8.6, 9.6, 10.6},
+            {1.7, 2.7, 3.7, 4.7, 5.7, 6.7, 7.7, 8.7, 9.7, 10.7},
+            {1.75, 2.75, 3.75, 4.75, 5.75, 6.75, 7.75, 8.75, 9.75, 10.75},
+            {1.8, 2.8, 3.8, 4.8, 5.8, 6.8, 7.8, 8.8, 9.8, 10.8}
+        };
+        
+        uint64_t user_id = 100; // Start with non-zero IDs
+        for (const auto& v : vectors) {
+            store.add_vector(user_id++, v);
+        }
+        
+        REQUIRE(store.get_index_current_count() == num_vectors);
+        REQUIRE(store.get_next_label() == num_vectors);
+        
+        // Save the index
+        store.save_index(index_path);
+        
+    } // store goes out of scope and is destroyed
+    
+    // Step 2: Load the index using the loading constructor
+    {
+        std::cout << "LOADING FROM FILE \n";
+        VectorStore<L2Sim> loaded_store(index_path);
+        std::cout << "LOADING FROM FILE DONE \n";
+        
+        // Verify dimensions and parameters
+        REQUIRE(loaded_store.get_dim() == dimension);
+        REQUIRE(loaded_store.get_index_current_count() == num_vectors);
+        REQUIRE(loaded_store.get_next_label() == num_vectors);
+        
+        // Verify mappings were loaded correctly
+        REQUIRE(loaded_store.get_id_to_label().size() == num_vectors);
+        REQUIRE(loaded_store.get_label_to_id().size() >= num_vectors);
+        
+        // Verify specific user IDs exist
+        auto id_to_label = loaded_store.get_id_to_label();
+        for (uint64_t user_id = 100; user_id < 100 + num_vectors; ++user_id) {
+            REQUIRE(id_to_label.find(user_id) != id_to_label.end());
+        }
+        
+        // Verify search functionality works on loaded index
+        std::vector<float> query = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0};
+        auto results = loaded_store.search_vectors(query, 3);
+        
+        REQUIRE(results.size() == 3);
+        REQUIRE(results[0].user_id == 100); // Should match first vector (user_id 100)
+    }
+    
+    // Clean up test files
+    std::remove((index_path + ".hnsw").c_str());
+    std::remove((index_path + ".hnsw.map").c_str());
+    std::remove((index_path + ".hnsw.meta").c_str());
+}
+
+TEST_CASE("VectorStore loading constructor throws on missing index file", "[vector_store][load][error]") {
+    const std::string nonexistent_path = "nonexistent_index_12345";
+    
+    // Should throw when trying to load non-existent index
+    REQUIRE_THROWS_AS(
+        VectorStore<L2Sim>(nonexistent_path),
+        std::runtime_error
+    );
+}
+
+TEST_CASE("VectorStore loading constructor throws on missing mapping file", "[vector_store][load][error]") {
+    const std::string index_path = "test_missing_map";
+    const int dimension = 5;
+    
+    // ✅ FIRST: Clean up any existing files from previous runs
+    std::remove((index_path + ".hnsw").c_str());
+    std::remove((index_path + ".hnsw.map").c_str());
+    std::remove((index_path + ".hnsw.meta").c_str());
+    
+    // Create and save only the index file, not the mapping
+    {
+        VectorStore<L2Sim> store(index_path, dimension);
+        std::vector<float> vec = {1.0, 2.0, 3.0, 4.0, 5.0};
+        store.add_vector(1, vec);
+        
+        // Save only the hnsw index and metadata
+        store.save_index_metadata(index_path);
+        store.get_index().saveIndex(index_path + ".hnsw");
+        // Note: NOT saving mappings!
+    }
+    
+    // ✅ Verify the map file doesn't exist
+    std::ifstream check(index_path + ".hnsw.map");
+    REQUIRE(!check.good());  // Map file should NOT exist
+    
+    // Should throw when trying to load without mapping file
+    REQUIRE_THROWS_AS(VectorStore<L2Sim>(index_path), std::runtime_error);
+    
+    // Clean up
+    std::remove((index_path + ".hnsw").c_str());
+    std::remove((index_path + ".hnsw.meta").c_str());
+}
+
+TEST_CASE("VectorStore preserves data integrity after save/load cycle", "[vector_store][load][integrity]") {
+    const std::string index_path = "test_data_integrity";
+    const int dimension = 8;
+    
+    // Original data
+    std::vector<std::pair<uint64_t, std::vector<float>>> original_data = {
+        {1001, {0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f}},
+        {1002, {0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f}},
+        {1003, {0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f}},
+    };
+    
+    std::vector<float> query = {0.15f, 0.25f, 0.35f, 0.45f, 0.55f, 0.65f, 0.75f, 0.85f};
+    std::vector<uint64_t> original_results;
+    
+    // Step 1: Create, populate, search, and save
+    {
+        VectorStore<L2Sim> store(index_path, dimension);
+        for (const auto& [user_id, vec] : original_data) {
+            store.add_vector(user_id, vec);
+        }
+        
+        auto results = store.search_vectors(query, 3);
+        for (const auto& r : results) {
+            original_results.push_back(r.user_id);
+        }
+        
+        store.save_index(index_path);
+    }
+    
+    // Step 2: Load and verify results are identical
+    {
+        VectorStore<L2Sim> loaded_store(index_path);
+        
+        auto loaded_results = loaded_store.search_vectors(query, 3);
+        
+        REQUIRE(loaded_results.size() == original_results.size());
+        for (size_t i = 0; i < loaded_results.size(); ++i) {
+            REQUIRE(loaded_results[i].user_id == original_results[i]);
+        }
+    }
+    
+    // Clean up
+    std::remove((index_path + ".hnsw").c_str());
+    std::remove((index_path + ".hnsw.map").c_str());
+    std::remove((index_path + ".hnsw.meta").c_str());
 }
