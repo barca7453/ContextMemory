@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <sys/types.h>
 #include <tuple>
 #include <hnswlib/hnswlib.h>
 #include <unordered_map>
@@ -123,6 +124,52 @@ public:
       id_to_label_[user_id] = next_label_;
       label_to_id_[next_label_] = user_id;
       next_label_++;
+    }
+
+    using VECTOR_BATCH = std::vector<std::pair<uint64_t, std::vector<float>>>;
+    std::vector<uint64_t> try_add_vector_batch(const VECTOR_BATCH& batch, bool validate = true) {
+      if (batch.empty()) {
+        return std::vector<uint64_t>();
+        throw std::runtime_error("The batch is empty.");
+      }
+
+      // resize label_to_id_ if needed
+      if (next_label_  >= label_to_id_.size()) {
+        label_to_id_.resize(next_label_ + batch.size() + LABEL_RESERVE_INCREMENT_SIZE);
+      }
+
+      std::vector<uint64_t> added_points;
+      added_points.reserve(batch.size());
+      for (auto &point : batch) {
+        if (next_label_ >= max_elements_) {
+            break;
+        }
+
+        const auto& user_id = point.first;
+        const auto& vec = point.second;
+        if (validate) {
+          if (id_to_label_.find(user_id) != id_to_label_.end()) {
+            continue;
+          }
+          if (vec.size() != dim_) {
+            continue;
+          }
+        }
+
+        try {
+          // Make sure addPoint succeeds before updating maps
+          index_->addPoint(vec.data(), next_label_);
+          // Store mapping from user ID to hnsw label
+          id_to_label_[user_id] = next_label_;
+          label_to_id_[next_label_] = user_id;
+          next_label_++;
+          added_points.push_back(user_id);
+        } catch (...) {
+            continue;
+
+        }
+      }
+      return added_points;
     }
 
     struct SearchResult {

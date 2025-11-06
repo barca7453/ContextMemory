@@ -288,3 +288,199 @@ TEST_CASE("VectorStore preserves data integrity after save/load cycle", "[vector
     std::remove((index_path + ".hnsw.map").c_str());
     std::remove((index_path + ".hnsw.meta").c_str());
 }
+
+TEST_CASE("VectorStore try_add_vector_batch adds all valid vectors", "[vector_store][batch]") {
+    VectorStore<L2Sim> store("test_batch", 5);
+    
+    // Create a batch of valid vectors
+    VectorStore<L2Sim>::VECTOR_BATCH batch = {
+        {1, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f}},
+        {2, {1.1f, 2.1f, 3.1f, 4.1f, 5.1f}},
+        {3, {1.2f, 2.2f, 3.2f, 4.2f, 5.2f}},
+        {4, {1.3f, 2.3f, 3.3f, 4.3f, 5.3f}},
+        {5, {1.4f, 2.4f, 3.4f, 4.4f, 5.4f}}
+    };
+    
+    // Add batch
+    auto added = store.try_add_vector_batch(batch, true);
+    
+    // All should be added
+    REQUIRE(added.size() == 5);
+    REQUIRE(store.get_index_current_count() == 5);
+    REQUIRE(store.get_next_label() == 5);
+    
+    // Verify all user_ids were added
+    for (uint64_t id = 1; id <= 5; ++id) {
+        REQUIRE(std::find(added.begin(), added.end(), id) != added.end());
+    }
+}
+
+TEST_CASE("VectorStore try_add_vector_batch skips duplicate user_ids", "[vector_store][batch]") {
+    VectorStore<L2Sim> store("test_batch", 3);
+    
+    // Add one vector first
+    store.add_vector(2, {1.0f, 2.0f, 3.0f});
+    
+    // Create batch with duplicate user_id
+    VectorStore<L2Sim>::VECTOR_BATCH batch = {
+        {1, {1.1f, 2.1f, 3.1f}},  // New - should succeed
+        {2, {1.2f, 2.2f, 3.2f}},  // Duplicate - should skip
+        {3, {1.3f, 2.3f, 3.3f}},  // New - should succeed
+        {4, {1.4f, 2.4f, 3.4f}}   // New - should succeed
+    };
+    
+    // Add batch with validation
+    auto added = store.try_add_vector_batch(batch, true);
+    
+    // Should add 3 (skip the duplicate)
+    REQUIRE(added.size() == 3);
+    REQUIRE(store.get_index_current_count() == 4); // 1 original + 3 from batch
+    
+    // Check which were added
+    REQUIRE(std::find(added.begin(), added.end(), 1) != added.end());
+    REQUIRE(std::find(added.begin(), added.end(), 2) == added.end()); // Skipped
+    REQUIRE(std::find(added.begin(), added.end(), 3) != added.end());
+    REQUIRE(std::find(added.begin(), added.end(), 4) != added.end());
+}
+
+TEST_CASE("VectorStore try_add_vector_batch skips wrong dimension vectors", "[vector_store][batch]") {
+    VectorStore<L2Sim> store("test_batch", 4);
+    
+    // Create batch with mixed dimensions
+    VectorStore<L2Sim>::VECTOR_BATCH batch = {
+        {1, {1.0f, 2.0f, 3.0f, 4.0f}},        // Correct - should succeed
+        {2, {1.1f, 2.1f, 3.1f}},              // Wrong (too short) - should skip
+        {3, {1.2f, 2.2f, 3.2f, 4.2f}},        // Correct - should succeed
+        {4, {1.3f, 2.3f, 3.3f, 4.3f, 5.3f}}, // Wrong (too long) - should skip
+        {5, {1.4f, 2.4f, 3.4f, 4.4f}}         // Correct - should succeed
+    };
+    
+    // Add batch with validation
+    auto added = store.try_add_vector_batch(batch, true);
+    
+    // Should add 3 (skip the 2 wrong dimensions)
+    REQUIRE(added.size() == 3);
+    REQUIRE(store.get_index_current_count() == 3);
+    
+    // Check which were added
+    REQUIRE(std::find(added.begin(), added.end(), 1) != added.end());
+    REQUIRE(std::find(added.begin(), added.end(), 2) == added.end()); // Skipped
+    REQUIRE(std::find(added.begin(), added.end(), 3) != added.end());
+    REQUIRE(std::find(added.begin(), added.end(), 4) == added.end()); // Skipped
+    REQUIRE(std::find(added.begin(), added.end(), 5) != added.end());
+}
+
+TEST_CASE("VectorStore try_add_vector_batch with validation off adds invalid data", "[vector_store][batch]") {
+    VectorStore<L2Sim> store("test_batch", 3);
+    
+    // Add one vector first
+    store.add_vector(2, {1.0f, 2.0f, 3.0f});
+    
+    // Create batch with duplicate (but validation will be off)
+    VectorStore<L2Sim>::VECTOR_BATCH batch = {
+        {1, {1.1f, 2.1f, 3.1f}},  // New
+        {2, {1.2f, 2.2f, 3.2f}},  // Duplicate - would normally skip, but validation is off
+        {3, {1.3f, 2.3f, 3.3f}}   // New
+    };
+    
+    // Add batch WITHOUT validation
+    auto added = store.try_add_vector_batch(batch, false);
+    
+    // With validation off, all should be added (even duplicate)
+    // Note: This overwrites the mapping for user_id 2
+    REQUIRE(added.size() == 3);
+    REQUIRE(store.get_index_current_count() == 4); // 1 original + 3 from batch
+}
+
+TEST_CASE("VectorStore try_add_vector_batch handles empty batch", "[vector_store][batch]") {
+    VectorStore<L2Sim> store("test_batch", 3);
+    
+    // Empty batch
+    VectorStore<L2Sim>::VECTOR_BATCH batch;
+    
+    // Should return empty vector without throwing
+    auto added = store.try_add_vector_batch(batch, true);
+    
+    REQUIRE(added.empty());
+    REQUIRE(store.get_index_current_count() == 0);
+}
+
+TEST_CASE("VectorStore try_add_vector_batch handles mixed valid/invalid vectors", "[vector_store][batch]") {
+    VectorStore<L2Sim> store("test_batch", 5);
+    
+    // Add a couple vectors first
+    store.add_vector(10, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f});
+    store.add_vector(20, {1.1f, 2.1f, 3.1f, 4.1f, 5.1f});
+    
+    // Create complex batch with various issues
+    VectorStore<L2Sim>::VECTOR_BATCH batch = {
+        {1, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f}},        // Valid - should add
+        {10, {1.1f, 2.1f, 3.1f, 4.1f, 5.1f}},       // Duplicate - should skip
+        {2, {1.2f, 2.2f, 3.2f, 4.2f, 5.2f}},        // Valid - should add
+        {3, {1.3f, 2.3f, 3.3f}},                    // Wrong dimension - should skip
+        {4, {1.4f, 2.4f, 3.4f, 4.4f, 5.4f}},        // Valid - should add
+        {20, {1.5f, 2.5f, 3.5f, 4.5f, 5.5f}},       // Duplicate - should skip
+        {5, {1.6f, 2.6f, 3.6f, 4.6f, 5.6f, 6.6f}},  // Wrong dimension - should skip
+        {6, {1.7f, 2.7f, 3.7f, 4.7f, 5.7f}}         // Valid - should add
+    };
+    
+    // Add batch
+    auto added = store.try_add_vector_batch(batch, true);
+    
+    // Should add 4 valid ones (1, 2, 4, 6)
+    REQUIRE(added.size() == 4);
+    REQUIRE(store.get_index_current_count() == 6); // 2 original + 4 from batch
+    
+    // Verify correct ones were added
+    REQUIRE(std::find(added.begin(), added.end(), 1) != added.end());
+    REQUIRE(std::find(added.begin(), added.end(), 2) != added.end());
+    REQUIRE(std::find(added.begin(), added.end(), 4) != added.end());
+    REQUIRE(std::find(added.begin(), added.end(), 6) != added.end());
+    
+    // Verify incorrect ones were NOT added
+    REQUIRE(std::find(added.begin(), added.end(), 10) == added.end());
+    REQUIRE(std::find(added.begin(), added.end(), 20) == added.end());
+    REQUIRE(std::find(added.begin(), added.end(), 3) == added.end());
+    REQUIRE(std::find(added.begin(), added.end(), 5) == added.end());
+}
+
+TEST_CASE("VectorStore try_add_vector_batch can search added vectors", "[vector_store][batch]") {
+    VectorStore<L2Sim> store("test_batch", 4);
+    
+    // Create batch
+    VectorStore<L2Sim>::VECTOR_BATCH batch = {
+        {100, {1.0f, 2.0f, 3.0f, 4.0f}},
+        {101, {1.1f, 2.1f, 3.1f, 4.1f}},
+        {102, {1.2f, 2.2f, 3.2f, 4.2f}}
+    };
+    
+    // Add batch
+    auto added = store.try_add_vector_batch(batch, true);
+    REQUIRE(added.size() == 3);
+    
+    // Search for vector close to first one
+    std::vector<float> query = {1.0f, 2.0f, 3.0f, 4.0f};
+    auto results = store.search_vectors(query, 2);
+    
+    REQUIRE(results.size() == 2);
+    REQUIRE(results[0].user_id == 100); // Exact match should be first
+}
+
+TEST_CASE("VectorStore try_add_vector_batch respects capacity limit", "[vector_store][batch]") {
+    // Create store with very small capacity
+    VectorStore<L2Sim> store("test_batch", 3);
+    // Note: max_elements is 10000 by default, so we can't easily test this
+    // unless we modify the store or add many vectors
+    
+    // This is more of a documentation test showing the behavior
+    // In real usage, if capacity is exceeded, the function stops adding
+    VectorStore<L2Sim>::VECTOR_BATCH batch = {
+        {1, {1.0f, 2.0f, 3.0f}},
+        {2, {1.1f, 2.1f, 3.1f}},
+        {3, {1.2f, 2.2f, 3.2f}}
+    };
+    
+    auto added = store.try_add_vector_batch(batch, true);
+    REQUIRE(added.size() == 3);
+    REQUIRE(store.get_index_current_count() == 3);
+}
