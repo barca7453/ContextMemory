@@ -290,6 +290,499 @@ TEST_CASE("VectorStore preserves data integrity after save/load cycle", "[vector
     std::remove((index_path + ".hnsw.meta").c_str());
 }
 
+//=============================================================================
+// PERFORMANCE BENCHMARKS
+//=============================================================================
+
+#include <chrono>
+#include <iomanip>
+
+/**
+ * Helper function to format time durations nicely
+ */
+std::string format_duration(std::chrono::microseconds duration) {
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+    auto us = duration.count() % 1000;
+    
+    if (ms > 0) {
+        return std::to_string(ms) + "." + std::to_string(us / 100) + " ms";
+    } else {
+        return std::to_string(duration.count()) + " μs";
+    }
+}
+
+TEST_CASE("Benchmark: add_vector single insertions", "[benchmark][add_vector]") {
+    const int dimension = 128;
+    const std::vector<int> test_sizes = {100, 1000, 5000};
+    
+    std::cout << "\n=== Benchmark: Single Vector Addition ===" << std::endl;
+    std::cout << "Dimension: " << dimension << std::endl;
+    std::cout << std::string(70, '-') << std::endl;
+    std::cout << std::setw(15) << "Count" 
+              << std::setw(20) << "Total Time"
+              << std::setw(20) << "Avg per vector"
+              << std::setw(15) << "Ops/sec" << std::endl;
+    std::cout << std::string(70, '-') << std::endl;
+    
+    for (int count : test_sizes) {
+        VectorStore<L2Sim> store("benchmark_single", dimension);
+        
+        // Prepare vectors
+        std::vector<std::vector<float>> vectors(count);
+        for (int i = 0; i < count; ++i) {
+            vectors[i].resize(dimension);
+            for (int j = 0; j < dimension; ++j) {
+                vectors[i][j] = static_cast<float>(i * dimension + j) / 1000.0f;
+            }
+        }
+        
+        // Benchmark
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        for (int i = 0; i < count; ++i) {
+            store.add_vector(i, vectors[i]);
+        }
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        auto avg_per_vector = duration.count() / count;
+        auto ops_per_sec = (count * 1000000.0) / duration.count();
+        
+        std::cout << std::setw(15) << count
+                  << std::setw(20) << format_duration(duration)
+                  << std::setw(20) << avg_per_vector << " μs"
+                  << std::setw(15) << static_cast<int>(ops_per_sec) << std::endl;
+    }
+    std::cout << std::string(70, '-') << std::endl;
+}
+
+TEST_CASE("Benchmark: try_add_vector_batch insertions", "[benchmark][batch]") {
+    const int dimension = 128;
+    const std::vector<int> test_sizes = {100, 1000, 5000};
+    
+    std::cout << "\n=== Benchmark: Batch Vector Addition ===" << std::endl;
+    std::cout << "Dimension: " << dimension << std::endl;
+    std::cout << std::string(70, '-') << std::endl;
+    std::cout << std::setw(15) << "Count" 
+              << std::setw(20) << "Total Time"
+              << std::setw(20) << "Avg per vector"
+              << std::setw(15) << "Ops/sec" << std::endl;
+    std::cout << std::string(70, '-') << std::endl;
+    
+    for (int count : test_sizes) {
+        VectorStore<L2Sim> store("benchmark_batch", dimension);
+        
+        // Prepare batch
+        VectorStore<L2Sim>::VECTOR_BATCH batch;
+        batch.reserve(count);
+        
+        for (int i = 0; i < count; ++i) {
+            std::vector<float> vec(dimension);
+            for (int j = 0; j < dimension; ++j) {
+                vec[j] = static_cast<float>(i * dimension + j) / 1000.0f;
+            }
+            batch.push_back({static_cast<uint64_t>(i), vec});
+        }
+        
+        // Benchmark
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        auto added = store.try_add_vector_batch(batch, true);
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        auto avg_per_vector = duration.count() / count;
+        auto ops_per_sec = (count * 1000000.0) / duration.count();
+        
+        REQUIRE(added.size() == count);
+        
+        std::cout << std::setw(15) << count
+                  << std::setw(20) << format_duration(duration)
+                  << std::setw(20) << avg_per_vector << " μs"
+                  << std::setw(15) << static_cast<int>(ops_per_sec) << std::endl;
+    }
+    std::cout << std::string(70, '-') << std::endl;
+}
+
+TEST_CASE("Benchmark: search_vectors queries", "[benchmark][search]") {
+    const int dimension = 128;
+    const int index_size = 10000;
+    const std::vector<int> k_values = {1, 10, 50, 100};
+    const int num_queries = 100;
+    
+    std::cout << "\n=== Benchmark: Vector Search ===" << std::endl;
+    std::cout << "Index size: " << index_size << " vectors, Dimension: " << dimension << std::endl;
+    std::cout << "Running " << num_queries << " queries for each k value" << std::endl;
+    std::cout << std::string(70, '-') << std::endl;
+    std::cout << std::setw(10) << "k" 
+              << std::setw(20) << "Total Time"
+              << std::setw(20) << "Avg per query"
+              << std::setw(20) << "Queries/sec" << std::endl;
+    std::cout << std::string(70, '-') << std::endl;
+    
+    // Build index
+    VectorStore<L2Sim> store("benchmark_search", dimension);
+    
+    std::cout << "Building index with " << index_size << " vectors..." << std::flush;
+    auto build_start = std::chrono::high_resolution_clock::now();
+    
+    for (int i = 0; i < index_size; ++i) {
+        std::vector<float> vec(dimension);
+        for (int j = 0; j < dimension; ++j) {
+            vec[j] = static_cast<float>(i * dimension + j) / 1000.0f;
+        }
+        store.add_vector(i, vec);
+    }
+    
+    auto build_end = std::chrono::high_resolution_clock::now();
+    auto build_duration = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start);
+    std::cout << " Done in " << build_duration.count() << " ms" << std::endl;
+    std::cout << std::string(70, '-') << std::endl;
+    
+    // Prepare query vectors
+    std::vector<std::vector<float>> queries(num_queries);
+    for (int i = 0; i < num_queries; ++i) {
+        queries[i].resize(dimension);
+        for (int j = 0; j < dimension; ++j) {
+            queries[i][j] = static_cast<float>((i + 5000) * dimension + j) / 1000.0f;
+        }
+    }
+    
+    // Benchmark different k values
+    for (int k : k_values) {
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        for (int i = 0; i < num_queries; ++i) {
+            auto results = store.search_vectors(queries[i], k);
+            REQUIRE(results.size() <= k);
+        }
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        auto avg_per_query = duration.count() / num_queries;
+        auto queries_per_sec = (num_queries * 1000000.0) / duration.count();
+        
+        std::cout << std::setw(10) << k
+                  << std::setw(20) << format_duration(duration)
+                  << std::setw(20) << avg_per_query << " μs"
+                  << std::setw(20) << static_cast<int>(queries_per_sec) << std::endl;
+    }
+    std::cout << std::string(70, '-') << std::endl;
+}
+
+TEST_CASE("Benchmark: Comparison - Single vs Batch insertion", "[benchmark][comparison]") {
+    const int dimension = 128;
+    const int count = 5000;
+    
+    std::cout << "\n=== Benchmark: Single vs Batch Insertion ===" << std::endl;
+    std::cout << "Adding " << count << " vectors of dimension " << dimension << std::endl;
+    std::cout << std::string(70, '-') << std::endl;
+    
+    // Prepare data
+    std::vector<std::vector<float>> vectors(count);
+    for (int i = 0; i < count; ++i) {
+        vectors[i].resize(dimension);
+        for (int j = 0; j < dimension; ++j) {
+            vectors[i][j] = static_cast<float>(i * dimension + j) / 1000.0f;
+        }
+    }
+    
+    // Test 1: Single insertion
+    {
+        VectorStore<L2Sim> store("benchmark_single_comp", dimension);
+        
+        auto start = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < count; ++i) {
+            store.add_vector(i, vectors[i]);
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        std::cout << "Single insertion:  " << duration.count() << " ms" << std::endl;
+    }
+    
+    // Test 2: Batch insertion
+    {
+        VectorStore<L2Sim> store("benchmark_batch_comp", dimension);
+        
+        VectorStore<L2Sim>::VECTOR_BATCH batch;
+        batch.reserve(count);
+        for (int i = 0; i < count; ++i) {
+            batch.push_back({static_cast<uint64_t>(i), vectors[i]});
+        }
+        
+        auto start = std::chrono::high_resolution_clock::now();
+        auto added = store.try_add_vector_batch(batch, true);
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        REQUIRE(added.size() == count);
+        std::cout << "Batch insertion:   " << duration.count() << " ms" << std::endl;
+    }
+    
+    std::cout << std::string(70, '-') << std::endl;
+}
+
+TEST_CASE("Benchmark: Save and Load operations", "[benchmark][io]") {
+    const int dimension = 128;
+    const int count = 5000;
+    const std::string index_path = "benchmark_io";
+    
+    std::cout << "\n=== Benchmark: Save/Load Operations ===" << std::endl;
+    std::cout << "Index with " << count << " vectors of dimension " << dimension << std::endl;
+    std::cout << std::string(70, '-') << std::endl;
+    
+    // Build index
+    VectorStore<L2Sim> store("benchmark_io_create", dimension);
+    for (int i = 0; i < count; ++i) {
+        std::vector<float> vec(dimension);
+        for (int j = 0; j < dimension; ++j) {
+            vec[j] = static_cast<float>(i * dimension + j) / 1000.0f;
+        }
+        store.add_vector(i, vec);
+    }
+    
+    // Benchmark save
+    {
+        auto start = std::chrono::high_resolution_clock::now();
+        store.save_index(index_path);
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        std::cout << "Save time:  " << duration.count() << " ms" << std::endl;
+    }
+    
+    // Benchmark load
+    {
+        auto start = std::chrono::high_resolution_clock::now();
+        VectorStore<L2Sim> loaded_store(index_path);
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        
+        std::cout << "Load time:  " << duration.count() << " ms" << std::endl;
+        
+        REQUIRE(loaded_store.get_index_current_count() == count);
+    }
+    
+    std::cout << std::string(70, '-') << std::endl;
+    
+    // Clean up
+    std::remove((index_path + ".hnsw").c_str());
+    std::remove((index_path + ".hnsw.map").c_str());
+    std::remove((index_path + ".hnsw.meta").c_str());
+}
+
+TEST_CASE("Benchmark: 1.1M vectors - Complete Performance Test", "[benchmark][large][1M]") {
+    const int dimension = 128;
+    const int total_vectors = 1100000;  // 1.1 million
+    const int batch_size = 10000;       // Insert in batches for better performance
+    const std::vector<int> k_values = {1, 10, 50, 100};
+    const int num_queries = 1000;
+    const std::string index_path = "benchmark_1M";
+    
+    std::cout << "\n" << std::string(80, '=') << std::endl;
+    std::cout << "=== LARGE SCALE BENCHMARK: 1.1 MILLION VECTORS ===" << std::endl;
+    std::cout << std::string(80, '=') << std::endl;
+    std::cout << "Dimension: " << dimension << std::endl;
+    std::cout << "Total vectors: " << total_vectors << std::endl;
+    std::cout << "Batch size: " << batch_size << std::endl;
+    std::cout << std::string(80, '=') << std::endl;
+    
+    // Create store with initial capacity - HNSW will resize as needed
+    // Start with 100k to avoid initial memory allocation issues
+    VectorStore<L2Sim> store("benchmark_1M_create", dimension, 100000);
+    
+    //=========================================================================
+    // PHASE 1: INSERTION PERFORMANCE
+    //=========================================================================
+    std::cout << "\n[PHASE 1] INSERTION PERFORMANCE" << std::endl;
+    std::cout << std::string(80, '-') << std::endl;
+    
+    auto insertion_start = std::chrono::high_resolution_clock::now();
+    int vectors_added = 0;
+    
+    // Insert in batches with progress reporting
+    for (int batch_num = 0; batch_num < total_vectors / batch_size; ++batch_num) {
+        VectorStore<L2Sim>::VECTOR_BATCH batch;
+        batch.reserve(batch_size);
+        
+        for (int i = 0; i < batch_size; ++i) {
+            uint64_t vec_id = batch_num * batch_size + i;
+            std::vector<float> vec(dimension);
+            for (int j = 0; j < dimension; ++j) {
+                vec[j] = static_cast<float>(vec_id * dimension + j) / 1000000.0f;
+            }
+            batch.push_back({vec_id, vec});
+        }
+        
+        auto added = store.try_add_vector_batch(batch, true);
+        vectors_added += added.size();
+        
+        // Progress reporting every 100k vectors
+        if ((vectors_added % 100000) == 0) {
+            auto current_time = std::chrono::high_resolution_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - insertion_start);
+            std::cout << "  Inserted: " << vectors_added << " vectors in " 
+                      << elapsed.count() << "s" << std::endl;
+        }
+    }
+    
+    auto insertion_end = std::chrono::high_resolution_clock::now();
+    auto insertion_duration = std::chrono::duration_cast<std::chrono::milliseconds>(insertion_end - insertion_start);
+    
+    REQUIRE(vectors_added == total_vectors);
+    REQUIRE(store.get_index_current_count() == total_vectors);
+    
+    std::cout << std::string(80, '-') << std::endl;
+    std::cout << "Total insertion time:     " << insertion_duration.count() / 1000.0 << " seconds" << std::endl;
+    std::cout << "Average per vector:       " << (insertion_duration.count() * 1000.0) / total_vectors << " μs" << std::endl;
+    std::cout << "Throughput:               " << (total_vectors * 1000.0) / insertion_duration.count() << " vectors/sec" << std::endl;
+    std::cout << "Index element count:      " << store.get_index_current_count() << std::endl;
+    std::cout << std::string(80, '-') << std::endl;
+    
+    //=========================================================================
+    // PHASE 2: SEARCH PERFORMANCE
+    //=========================================================================
+    std::cout << "\n[PHASE 2] SEARCH PERFORMANCE" << std::endl;
+    std::cout << std::string(80, '-') << std::endl;
+    std::cout << "Running " << num_queries << " queries for each k value" << std::endl;
+    std::cout << std::string(80, '-') << std::endl;
+    std::cout << std::setw(10) << "k" 
+              << std::setw(20) << "Total Time"
+              << std::setw(20) << "Avg per query"
+              << std::setw(15) << "Queries/sec"
+              << std::setw(15) << "Recall@k" << std::endl;
+    std::cout << std::string(80, '-') << std::endl;
+    
+    // Prepare query vectors
+    std::vector<std::vector<float>> queries(num_queries);
+    for (int i = 0; i < num_queries; ++i) {
+        queries[i].resize(dimension);
+        // Use existing vectors for queries to test recall
+        uint64_t query_id = (i * (total_vectors / num_queries)) % total_vectors;
+        for (int j = 0; j < dimension; ++j) {
+            queries[i][j] = static_cast<float>(query_id * dimension + j) / 1000000.0f;
+        }
+    }
+    
+    // Benchmark different k values
+    double search_k10_qps = 0;  // Store for summary
+    for (int k : k_values) {
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        int perfect_recalls = 0;
+        for (int i = 0; i < num_queries; ++i) {
+            auto results = store.search_vectors(queries[i], k);
+            REQUIRE(results.size() <= k);
+            
+            // Check if exact match is in top-k (for recall calculation)
+            uint64_t query_id = (i * (total_vectors / num_queries)) % total_vectors;
+            for (const auto& result : results) {
+                if (result.user_id == query_id) {
+                    perfect_recalls++;
+                    break;
+                }
+            }
+        }
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        auto avg_per_query = duration.count() / num_queries;
+        auto queries_per_sec = (num_queries * 1000000.0) / duration.count();
+        double recall = (perfect_recalls * 100.0) / num_queries;
+        
+        if (k == 10) {
+            search_k10_qps = queries_per_sec;
+        }
+        
+        std::cout << std::setw(10) << k
+                  << std::setw(20) << format_duration(duration)
+                  << std::setw(20) << avg_per_query << " μs"
+                  << std::setw(15) << static_cast<int>(queries_per_sec)
+                  << std::setw(14) << std::fixed << std::setprecision(1) << recall << "%" << std::endl;
+    }
+    std::cout << std::string(80, '-') << std::endl;
+    
+    //=========================================================================
+    // PHASE 3: SAVE PERFORMANCE
+    //=========================================================================
+    std::cout << "\n[PHASE 3] SAVE PERFORMANCE" << std::endl;
+    std::cout << std::string(80, '-') << std::endl;
+    
+    auto save_start = std::chrono::high_resolution_clock::now();
+    store.save_index(index_path);
+    auto save_end = std::chrono::high_resolution_clock::now();
+    auto save_duration = std::chrono::duration_cast<std::chrono::milliseconds>(save_end - save_start);
+    
+    std::cout << "Save time:                " << save_duration.count() / 1000.0 << " seconds" << std::endl;
+    
+    // Get file sizes
+    auto get_file_size = [](const std::string& path) -> size_t {
+        std::ifstream file(path, std::ios::binary | std::ios::ate);
+        return file.is_open() ? static_cast<size_t>(file.tellg()) : 0;
+    };
+    
+    size_t hnsw_size = get_file_size(index_path + ".hnsw");
+    size_t map_size = get_file_size(index_path + ".hnsw.map");
+    size_t meta_size = get_file_size(index_path + ".hnsw.meta");
+    size_t total_size = hnsw_size + map_size + meta_size;
+    
+    std::cout << "File sizes:" << std::endl;
+    std::cout << "  HNSW index:             " << hnsw_size / (1024.0 * 1024.0) << " MB" << std::endl;
+    std::cout << "  Mappings:               " << map_size / (1024.0 * 1024.0) << " MB" << std::endl;
+    std::cout << "  Metadata:               " << meta_size / 1024.0 << " KB" << std::endl;
+    std::cout << "  Total:                  " << total_size / (1024.0 * 1024.0) << " MB" << std::endl;
+    std::cout << "  Bytes per vector:       " << total_size / total_vectors << " bytes" << std::endl;
+    std::cout << std::string(80, '-') << std::endl;
+    
+    //=========================================================================
+    // PHASE 4: LOAD PERFORMANCE
+    //=========================================================================
+    std::cout << "\n[PHASE 4] LOAD PERFORMANCE" << std::endl;
+    std::cout << std::string(80, '-') << std::endl;
+    
+    auto load_start = std::chrono::high_resolution_clock::now();
+    VectorStore<L2Sim> loaded_store(index_path);
+    auto load_end = std::chrono::high_resolution_clock::now();
+    auto load_duration = std::chrono::duration_cast<std::chrono::milliseconds>(load_end - load_start);
+    
+    std::cout << "Load time:                " << load_duration.count() / 1000.0 << " seconds" << std::endl;
+    std::cout << "Loaded element count:     " << loaded_store.get_index_current_count() << std::endl;
+    
+    REQUIRE(loaded_store.get_index_current_count() == total_vectors);
+    
+    // Verify search still works after load
+    auto verify_results = loaded_store.search_vectors(queries[0], 10);
+    REQUIRE(verify_results.size() == 10);
+    
+    std::cout << "Verification:             PASSED (search works after load)" << std::endl;
+    std::cout << std::string(80, '-') << std::endl;
+    
+    //=========================================================================
+    // SUMMARY
+    //=========================================================================
+    std::cout << "\n" << std::string(80, '=') << std::endl;
+    std::cout << "=== BENCHMARK SUMMARY ===" << std::endl;
+    std::cout << std::string(80, '=') << std::endl;
+    std::cout << "Vectors:                  " << total_vectors << std::endl;
+    std::cout << "Dimension:                " << dimension << std::endl;
+    std::cout << "Insert throughput:        " << std::fixed << std::setprecision(1) 
+              << (total_vectors * 1000.0) / insertion_duration.count() << " vec/s" << std::endl;
+    std::cout << "Search speed (k=10):      " << static_cast<int>(search_k10_qps) << " queries/s" << std::endl;
+    std::cout << "Index size on disk:       " << std::setprecision(1) 
+              << total_size / (1024.0 * 1024.0) << " MB" << std::endl;
+    std::cout << "Save time:                " << std::setprecision(1) 
+              << save_duration.count() / 1000.0 << " s" << std::endl;
+    std::cout << "Load time:                " << std::setprecision(1) 
+              << load_duration.count() / 1000.0 << " s" << std::endl;
+    std::cout << std::string(80, '=') << std::endl;
+    
+    // Clean up
+    std::remove((index_path + ".hnsw").c_str());
+    std::remove((index_path + ".hnsw.map").c_str());
+    std::remove((index_path + ".hnsw.meta").c_str());
+}
+
 TEST_CASE("VectorStore try_add_vector_batch adds all valid vectors", "[vector_store][batch]") {
     VectorStore<L2Sim> store("test_batch", 5);
     

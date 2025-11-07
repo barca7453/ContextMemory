@@ -113,18 +113,18 @@ public:
      * 
      * @param index_path Logical name/path for this index (not used for new index)
      * @param dim Dimensionality of vectors to be stored
+     * @param max_elements Maximum number of vectors that can be stored (default: 10,000)
      * 
      * @throws std::runtime_error If index creation fails
      * 
      * Default HNSW parameters:
-     * - max_elements: 10,000
      * - M: 16 (number of outgoing connections)
      * - ef_construction: 200 (search quality during construction)
      * - ef: 10 (search quality during query)
      */
-    VectorStore(const std::string& index_path, const int dim)
+    VectorStore(const std::string& index_path, const int dim, const int max_elements = 10000)
         : dim_(dim), 
-          max_elements_(10000), 
+          max_elements_(max_elements), 
           M_(16), 
           ef_construction_(200), 
           ef_(10),
@@ -220,9 +220,12 @@ public:
       if (id_to_label_.find(user_id) != id_to_label_.end()) {
         throw std::runtime_error("User ID already exists");
       }
+      
+      // Auto-resize HNSW index if we're approaching capacity
       if (next_label_ >= max_elements_) {
-        throw std::runtime_error(
-            "Exceeded max number of elements in the index");
+        size_t new_capacity = max_elements_ * 2;  // Double the capacity
+        index_->resizeIndex(new_capacity);
+        max_elements_ = new_capacity;
       }
 
       // resize label_to_id_ if needed
@@ -294,8 +297,16 @@ public:
       std::vector<uint64_t> added_points;
       added_points.reserve(batch.size());
       for (auto &point : batch) {
+        // Auto-resize HNSW index if we're approaching capacity
         if (next_label_ >= max_elements_) {
-            break;
+            size_t new_capacity = max_elements_ * 2;  // Double the capacity
+            try {
+                index_->resizeIndex(new_capacity);
+                max_elements_ = new_capacity;
+            } catch (const std::exception& e) {
+                // If resize fails, stop adding more vectors
+                break;
+            }
         }
 
         const auto& user_id = point.first;
