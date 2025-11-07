@@ -24,27 +24,72 @@ Production-grade C++ retrieval system for vector search in RAG applications.
 
 ## Quick Start
 ```cpp
-#include "VectorStore.hpp"
+#include "ContextMemory/vector_store.h"
 
-// Create new index
-VectorStore store(128, 1000000);  // 128 dims, 1M capacity
+// =============================================================================
+// CREATE NEW INDEX
+// =============================================================================
 
-// Add vectors
-std::vector vec(128, 1.0f);
-store.add_vector(42, vec);
+// Specify similarity metric (L2Sim or CosineSim) and dimension
+VectorStore<L2Sim> store("my_index", 128);  // 128 dimensions, L2 distance
 
-// Search
-auto results = store.search_vectors(query, 5);
+// =============================================================================
+// ADD SINGLE VECTOR
+// =============================================================================
+
+std::vector<float> vec(128, 1.0f);
+store.add_vector(42, vec);  // user_id=42
+
+// =============================================================================
+// ADD BATCH OF VECTORS
+// =============================================================================
+
+// Create a batch
+VectorStore<L2Sim>::VECTOR_BATCH batch = {
+    {100, std::vector<float>(128, 1.0f)},
+    {101, std::vector<float>(128, 1.1f)},
+    {102, std::vector<float>(128, 1.2f)},
+    {103, std::vector<float>(128, 1.3f)}
+};
+
+// Add batch with validation (returns IDs that were successfully added)
+auto added = store.try_add_vector_batch(batch, true);
+
+std::cout << "Successfully added " << added.size() << " vectors" << std::endl;
+for (auto user_id : added) {
+    std::cout << "  Added user_id: " << user_id << std::endl;
+}
+
+// =============================================================================
+// SEARCH
+// =============================================================================
+
+std::vector<float> query(128, 1.0f);
+auto results = store.search_vectors(query, 5);  // Get top 5 results
+
 for (const auto& result : results) {
-    std::cout << "ID: " << result.id 
+    std::cout << "User ID: " << result.user_id 
               << " Distance: " << result.distance << std::endl;
 }
 
-// Save
-store.save("my_index");
+// =============================================================================
+// SAVE INDEX
+// =============================================================================
 
-// Load later
-VectorStore loaded("my_index");
+store.save_index("my_index");
+// Creates three files:
+//   - my_index.hnsw      (HNSW index)
+//   - my_index.hnsw.map  (ID mappings)
+//   - my_index.hnsw.meta (metadata)
+
+// =============================================================================
+// LOAD INDEX LATER
+// =============================================================================
+
+VectorStore<L2Sim> loaded("my_index");  // Loads from saved files
+
+// Can immediately search
+auto results2 = loaded.search_vectors(query, 5);
 ```
 
 ## Build
