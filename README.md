@@ -111,5 +111,20 @@ ctest  # Run tests
 - 100x faster than Python alternatives
 - Production-ready reliability
 
+## Key performance metrics
+Key Performance Metrics:
+- Insertion Performance:
+  5,000 vectors: ~1,110 ms (~221 μs per vector)
+  Throughput: ~4,500 ops/sec
+- Single vs Batch: Similar performance with validation enabled
+- Search Performance:
+   k=1: 13 μs per query (75,642 queries/sec) 🚀
+   k=10: 15 μs per query (63,816 queries/sec)
+   k=50: 48 μs per query (20,618 queries/sec)
+   k=100: 85 μs per query (11,712 queries/sec)
+- I/O Performance:
+   Save 5,000 vectors: 2 ms
+   Load 5,000 vectors: 10 ms
+
 ## Author
 Jayendra Gowrishankar
