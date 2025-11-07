@@ -111,34 +111,47 @@ ctest  # Run tests
 - 100x faster than Python alternatives
 - Production-ready reliability
 
+⚡ **Production-grade C++ retrieval system**
+
+- **26 μs search latency** on 1.1M vectors
+- **37,000+ queries/second** throughput
+- **1.9 second** cold start (load from disk)
+- **100-7,500x faster** than Python alternatives
+
+Built with modern C++17, HNSW algorithm, and optimized for real-time RAG applications.
+
+---
+
 ## Performance Benchmarks
 
-Tested on [your hardware: e.g., M1 Mac / Intel i9 / etc], 5,000 vectors, 128 dimensions:
+### At Scale: 1.1 Million Vectors (128 dimensions)
 
-### Search Performance (the key metric)
-| k (results) | Latency | Throughput |
-|-------------|---------|------------|
-| 1 | 13 μs | 75,642 qps |
-| 10 | 15 μs | 63,816 qps |
-| 50 | 48 μs | 20,618 qps |
-| 100 | 85 μs | 11,712 qps |
+**Search Performance** (the critical metric)
+| k (results) | Latency | Throughput | vs Python* |
+|-------------|---------|------------|------------|
+| 1 | 31 μs | 33,243 qps | 3,200x faster |
+| **10** | **26 μs** | **37,684 qps** | **3,800x faster** |
+| 50 | 58 μs | 17,220 qps | 1,700x faster |
+| 100 | 100 μs | 9,955 qps | 1,000x faster |
 
-**100-1000x faster than Python alternatives** (ChromaDB, LanceDB: ~100-200ms)
+*vs ChromaDB/LanceDB (~100ms typical)
 
-### Insertion Performance
-- **4,500 vectors/sec** (~221 μs per vector)
-- Batch operations with validation
-- Consistent performance at scale
+**Insertion Performance**
+- **3,944 vectors/second** (254 μs per vector)
+- **4.6 minutes** to index 1.1M vectors
+- Auto-resizing with consistent throughput
 
-### I/O Performance
-- **Save**: 2 ms for 5K vectors
-- **Load**: 10 ms for 5K vectors
-- Near-instant persistence
+**Persistence Performance**
+- **Save**: 0.6 seconds (718 MB)
+- **Load**: 1.9 seconds
+- **Ready in <2 seconds** from cold start
 
-### Why This Matters for RAG
-- **Real-time search**: <1ms latency enables interactive applications
-- **High throughput**: Handle 60K+ queries/sec on single machine
-- **Fast startup**: 10ms load time vs seconds for Python alternatives
+### Key Advantages
+- ✅ **Sub-millisecond latency**: 0.026ms vs 100ms (Python)
+- ✅ **High throughput**: 37K qps on single thread
+- ✅ **Fast startup**: 2 second load vs 30-60s (Python alternatives)
+- ✅ **Efficient storage**: 684 bytes per vector
+- ✅ **Production-ready**: Concurrent access, persistence, metrics
 
 ## Author
 Jayendra Gowrishankar
