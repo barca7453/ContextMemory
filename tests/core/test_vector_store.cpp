@@ -783,6 +783,89 @@ TEST_CASE("Benchmark: 1.1M vectors - Complete Performance Test", "[benchmark][la
     std::remove((index_path + ".hnsw.meta").c_str());
 }
 
+TEST_CASE("VectorStore ef parameter affects search recall", "[vector_store][ef][recall]") {
+    const int dimension = 128;
+    const int num_vectors = 10000;
+    const int num_queries = 100;
+    const int k = 10;
+    
+    std::cout << "\n=== ef Parameter Impact on Recall ===" << std::endl;
+    std::cout << "Index size: " << num_vectors << " vectors" << std::endl;
+    std::cout << "Queries: " << num_queries << ", k=" << k << std::endl;
+    std::cout << std::string(70, '-') << std::endl;
+    
+    // Create and populate index
+    VectorStore<L2Sim> store("ef_test", dimension);
+    
+    // Insert vectors with known pattern
+    for (int i = 0; i < num_vectors; ++i) {
+        std::vector<float> vec(dimension);
+        for (int j = 0; j < dimension; ++j) {
+            vec[j] = static_cast<float>(i * dimension + j) / 100000.0f;
+        }
+        store.add_vector(i, vec);
+    }
+    
+    // Prepare query vectors (exact copies of inserted vectors)
+    std::vector<std::pair<uint64_t, std::vector<float>>> queries;
+    for (int i = 0; i < num_queries; ++i) {
+        uint64_t query_id = i * (num_vectors / num_queries);
+        std::vector<float> vec(dimension);
+        for (int j = 0; j < dimension; ++j) {
+            vec[j] = static_cast<float>(query_id * dimension + j) / 100000.0f;
+        }
+        queries.push_back({query_id, vec});
+    }
+    
+    // Test different ef values
+    std::vector<int> ef_values = {10, 20, 50, 100, 200};
+    
+    std::cout << std::setw(10) << "ef" 
+              << std::setw(15) << "Recall@" << k
+              << std::setw(20) << "Avg Time (μs)"
+              << std::setw(15) << "Queries/sec" << std::endl;
+    std::cout << std::string(70, '-') << std::endl;
+    
+    for (int ef : ef_values) {
+        store.set_ef(ef);
+        REQUIRE(store.get_ef() == ef);  // Verify setter worked
+        
+        int perfect_recalls = 0;
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        for (const auto& [query_id, query_vec] : queries) {
+            auto results = store.search_vectors(query_vec, k);
+            
+            // Check if exact match is in top-k
+            for (const auto& result : results) {
+                if (result.user_id == query_id) {
+                    perfect_recalls++;
+                    break;
+                }
+            }
+        }
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+        double avg_time = duration.count() / static_cast<double>(num_queries);
+        double qps = (num_queries * 1000000.0) / duration.count();
+        double recall = (perfect_recalls * 100.0) / num_queries;
+        
+        std::cout << std::setw(10) << ef
+                  << std::setw(14) << std::fixed << std::setprecision(1) << recall << "%"
+                  << std::setw(20) << std::setprecision(2) << avg_time
+                  << std::setw(15) << static_cast<int>(qps) << std::endl;
+    }
+    
+    std::cout << std::string(70, '-') << std::endl;
+    std::cout << "Notice: Higher ef → Better recall but slower searches" << std::endl;
+    
+    // Clean up
+    std::remove("ef_test.hnsw");
+    std::remove("ef_test.hnsw.map");
+    std::remove("ef_test.hnsw.meta");
+}
+
 TEST_CASE("VectorStore try_add_vector_batch adds all valid vectors", "[vector_store][batch]") {
     VectorStore<L2Sim> store("test_batch", 5);
     

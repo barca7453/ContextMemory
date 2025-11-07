@@ -618,6 +618,36 @@ public:
       map_file.close();
     }
 
+    
+    //=============================================================================
+    // Setters - All thread-safe with shared locks (allow concurrent reads)
+    //=============================================================================
+    
+    /**
+     * @brief Set the ef parameter for search operations
+     * 
+     * The ef parameter controls the size of the dynamic candidate list during search.
+     * Higher values improve recall (accuracy) but make searches slower.
+     * 
+     * @param ef New ef value (typical range: 10-500)
+     * 
+     * Trade-offs:
+     * - ef=10:  Fast searches, low recall (~55-60% for large indices)
+     * - ef=50:  Balanced, medium recall (~85-90%)
+     * - ef=100: Slower, high recall (~95-98%)
+     * - ef=200+: Very slow, very high recall (~99%+)
+     * 
+     * Note: This only affects search speed/quality, not the index itself.
+     * Can be adjusted dynamically without rebuilding the index.
+     * 
+     * Thread-safety: Exclusive lock
+     */
+    void set_ef(size_t ef) {
+        std::unique_lock lock(store_mutex_);
+        ef_ = ef;
+        index_->setEf(ef);  // Update both member and HNSW index
+    }
+
     //=============================================================================
     // Getters - All thread-safe with shared locks (allow concurrent reads)
     //=============================================================================
