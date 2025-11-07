@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <mutex>
 #include <sys/types.h>
 #include <tuple>
 #include <hnswlib/hnswlib.h>
@@ -14,6 +15,7 @@
 #include <string>
 #include <vector>
 //#include <thread>
+#include <shared_mutex>
 #include <stdexcept>
 
 
@@ -31,6 +33,8 @@ template <typename SIM_POLICY>
 class VectorStore {
 private:
     static constexpr int LABEL_RESERVE_INCREMENT_SIZE = 1000;
+
+    mutable std::shared_mutex store_mutex_;
 
     // hnswlib handles vector storage (binary, efficient)
     std::unique_ptr<typename SIM_POLICY::SpaceType> space_;
@@ -100,6 +104,8 @@ public:
     ~VectorStore() = default;
 
     void add_vector(uint64_t user_id, const std::vector<float> &vec) {
+      std::unique_lock lock(store_mutex_);
+
       if (vec.size() != dim_) {
         throw std::runtime_error(
             "The dimension and vector sizes do not match.");
@@ -128,6 +134,8 @@ public:
 
     using VECTOR_BATCH = std::vector<std::pair<uint64_t, std::vector<float>>>;
     std::vector<uint64_t> try_add_vector_batch(const VECTOR_BATCH& batch, bool validate = true) {
+      std::unique_lock lock(store_mutex_);
+
       if (batch.empty()) {
         return std::vector<uint64_t>();
         throw std::runtime_error("The batch is empty.");
@@ -166,7 +174,6 @@ public:
           added_points.push_back(user_id);
         } catch (...) {
             continue;
-
         }
       }
       return added_points;
@@ -179,6 +186,8 @@ public:
 
     std::vector<SearchResult> search_vectors(const std::vector<float> &vector,
                                              const size_t k) {
+    
+      std::shared_lock lock(store_mutex_);
       // Mismatched dimension
       if (vector.size() != dim_) {
         throw std::runtime_error("Query vector dimension mismatch");
@@ -202,14 +211,16 @@ public:
     }
 
     void save_index(const std::string &index_path) const {
+      std::unique_lock lock(store_mutex_);
       // This might need to be done in a single block
       index_->saveIndex(index_path + ".hnsw");
-      save_mappings(index_path);
-      save_index_metadata(index_path);
+      save_mappings_unlocked(index_path);
+      save_metadata_unlocked(index_path);
       // end block
     }
 
     void cleanMappings() {
+      std::unique_lock lock(store_mutex_);
       // In a single block
       label_to_id_.clear();
       id_to_label_.clear();
@@ -217,6 +228,11 @@ public:
     }
 
     void save_mappings(const std::string &index_path) const {
+      std::unique_lock lock(store_mutex_);
+      save_mappings_unlocked(index_path);
+    }
+
+    void save_mappings_unlocked(const std::string &index_path) const {
       std::ofstream map_file(index_path + ".hnsw.map", std::ios::binary);
       if (!map_file.is_open()) {
         throw std::runtime_error("Failed to open map file for writing");
@@ -238,7 +254,12 @@ public:
       map_file.close();
     }
 
-    void save_index_metadata(const std::string &index_path) const {
+    void save_metadata(const std::string &index_path) const {
+      std::unique_lock lock(store_mutex_);
+      save_metadata_unlocked(index_path);
+    }
+
+    void save_metadata_unlocked(const std::string &index_path) const {
       std::ofstream metadataFile(index_path + ".hnsw.meta", std::ios::binary);
       if (!metadataFile.is_open()) {
         throw std::runtime_error("Unable to open metadata file for writing.");
@@ -260,6 +281,8 @@ public:
     }
 
     void load_index_metadata(const std::string &index_path) {
+      std::unique_lock lock(store_mutex_);
+
       std::ifstream metadata_file(index_path + ".hnsw.meta", std::ios::in);
       if (!metadata_file.is_open()) {
         auto message = "Unable to open file " + index_path + ".hnsw.meta for reading.";
@@ -276,6 +299,8 @@ public:
     }
 
     void load_mappings(const std::string &index_path) {
+      std::unique_lock lock(store_mutex_);
+
       std::ifstream map_file(index_path + ".hnsw.map", std::ios::binary);
       if (!map_file.is_open()) {
         throw std::runtime_error("Failed to open mapping file for reading.");
@@ -307,52 +332,65 @@ public:
 
     // getters
     std::unordered_map<uint64_t, hnswlib::labeltype> get_id_to_label() const {
-        return id_to_label_;
+      std::shared_lock lock(store_mutex_);
+      return id_to_label_;
     }
     std::vector<uint64_t> get_label_to_id() const {
-        return label_to_id_;
+      std::shared_lock lock(store_mutex_);
+      return label_to_id_;
     }
     int get_dim() const {
-        return dim_;
+      std::shared_lock lock(store_mutex_);
+      return dim_;
     }
     int get_max_elements() const {
-        return max_elements_;
+      std::shared_lock lock(store_mutex_);
+      return max_elements_;
     }
     int get_M() const {
-        return M_;
+      std::shared_lock lock(store_mutex_);
+      return M_;
     }
     int get_ef_construction() const {
-        return ef_construction_;
+      std::shared_lock lock(store_mutex_);
+      return ef_construction_;
     }
     int get_ef() const {
-        return ef_;
+      std::shared_lock lock(store_mutex_);
+      return ef_;
     }
     bool get_allow_replace_deleted() const {
-        return allow_replace_deleted_;
+      std::shared_lock lock(store_mutex_);
+      return allow_replace_deleted_;
     }
     size_t get_current_resized_label_vec_size() const {
-        return current_resized_label_vec_size_;
+      std::shared_lock lock(store_mutex_);
+      return current_resized_label_vec_size_;
     }
     size_t get_index_current_count() const {
+      std::shared_lock lock(store_mutex_);
         //return index_->getCurrentCount();
-        return index_->getCurrentElementCount();
+      return index_->getCurrentElementCount();
     }
     size_t get_next_label() const {
-        return next_label_;
+      std::shared_lock lock(store_mutex_);
+      return next_label_;
     }
-
+/*
     typename SIM_POLICY::IndexType& get_index() {
-        if (!index_) {
-            throw std::runtime_error("Index is not initialized.");
-        }
-        return *index_;
+      std::shared_lock lock(store_mutex_);
+      if (!index_) {
+        throw std::runtime_error("Index is not initialized.");
+      }
+      return *index_;
     } 
-
+*/
     const typename SIM_POLICY::IndexType& get_index() const {
-        if (!index_) {
-            throw std::runtime_error("Index is not initialized.");
-        }
-        return *index_;
+      std::shared_lock lock(store_mutex_);
+      if (!index_) {
+        throw std::runtime_error("Index is not initialized.");
+      }
+      return *index_;
     } 
 };
 
