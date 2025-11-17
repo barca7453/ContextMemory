@@ -1,6 +1,7 @@
 add_executable(memory_engine_tests
     test_main.cpp
     core/test_vector_store.cpp
+    core/test_lru.cpp
     # ... more test files
 )
 
