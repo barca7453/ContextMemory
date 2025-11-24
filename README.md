@@ -111,7 +111,7 @@ ctest  # Run tests
 - 100x faster than Python alternatives
 - Production-ready reliability
 
-⚡ **Production-grade C++ retrieval system**
+⚡ **Production-grade vector retrieval system**
 
 - **26 μs search latency** on 1.1M vectors
 - **37,000+ queries/second** throughput
