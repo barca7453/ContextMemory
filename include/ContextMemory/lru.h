@@ -12,6 +12,9 @@
 template <typename K, typename V>
 class LRU {
 public:
+    using key_type = K;
+    using value_type = V;
+
     LRU (size_t capacity) : capacity_(capacity), hits_(0), total_gets_(0)
     {};
     
@@ -50,10 +53,8 @@ public:
             }
             assert(kvmap_.size() <= capacity_);
 
-            // New entry
-            std::pair<K,V> node{key, val};
             // Add to the begining
-            lru_order_list_.emplace_front(node);
+            lru_order_list_.emplace_front(key, val);
             kvmap_[key] = lru_order_list_.begin();
         }
     }

@@ -25,3 +25,30 @@ TEST_CASE("LRU Basic Put and Get", "[lru]") {
     REQUIRE_FALSE(cache.contains(999));
 }
 
+TEST_CASE("LRU over capacity", "[lru]") {
+    // Create a simple LRU cache with capacity of 3
+    LRU<int, std::string> cache(3);
+    
+    // Put a value
+    cache.put(1, "value1");
+    cache.put(2, "value2");
+    cache.put(3, "value3");
+    cache.put(4, "value4");
+    
+    // Get the value back
+    auto result = cache.get(1);
+    
+    // Verify the value is gone 
+    REQUIRE_FALSE(result.has_value());
+    
+    // Verify cache has evicted the oldest key 
+    REQUIRE_FALSE(cache.contains(1));
+    
+    auto result4 = cache.get(4);
+    REQUIRE(result4.has_value());
+    // Try to get a non-existent key
+    auto missing = cache.get(999);
+    REQUIRE_FALSE(missing.has_value());
+    REQUIRE_FALSE(cache.contains(999));
+}
+
